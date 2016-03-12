@@ -1,0 +1,172 @@
+#Capstone Project Code: Predicting and Detecting the Presence of an Internet Ad 
+###Importing Data set from text file: 
+```{r}
+ad <- read.csv("~/Capstone /Internet Ad/ad-dataset (2)/ad.data", header=FALSE)
+```
+
+###Summary Stats
+```{r}
+summary(ad)
+```
+
+### Get the "shape" of the data
+```{r}
+dim(ad)
+head(ad)
+tail(ad)
+str(ad)
+```
+
+## Data Wrangling
+### Variable labels (df dataset)
+```{r}
+install.packages("readxl")
+library(readxl)
+df <- read_excel("Variable name .xlsx")
+```
+
+####Transposing from column to row 
+```{r, echo=false}
+View(t(df))
+
+var.names <- t(df)
+```
+
+####Attaching Varible Labels to the dataset 
+```{r}
+colnames(ad) <- var.names
+```
+
+ 
+### Converting variables into relevant vectors:
+#### Variable 1:4 from factor to numeric
+```{r}
+install.packages("plyr")
+install.packages("dplyr")
+library(plyr)
+library(dplyr)
+```
+
+
+###Subsetting the dataset to keep out the dependent variables from all the conversions
+```{r}
+newdata <- ad[c(-1559)]
+indx <- sapply(newdata, is.factor)
+newdata[indx] <- lapply(newdata[indx], function(x) as.numeric(as.character(x)))
+```
+
+
+###Adding the dependent variable back in
+```{r}
+newdata$ad_detected <- ad$`ad/nonad`
+```
+
+###Converting integers to factors 
+#### variable 4:1558 from integer to factor
+```{r}
+indx2 <- sapply(newdata, is.integer)
+ad[indx2] <- lapply(newdata[indx2], as.factor)
+```
+
+#### Checking str(ad)
+```{r}
+str(newdata)
+```
+
+
+### Convert "local" variable from numeric to factor
+```{r}
+as.factor(newdata$`local `)
+newdata$`local `<- as.factor(newdata$`local `)
+```
+
+
+### Removing Missing Values = 28% of all attributes
+#### Find a threshold value for when to not use a specific column? 
+#### remove any columns that may have more than 5% values missing
+```{r}
+final_data <- newdata[,colSums(is.na(newdata)) < 163]
+```
+
+####check how many NA are left 
+```{r}
+sum(is.na(final_data))
+```
+
+
+#### Removing rows with NA data --
+```{r}
+ad_data2 <- final_data[rowSums(is.na(final_data)) < 1,]
+```
+
+
+### "ad_data2" is the dataset used in the model after wrangling is completed and before LASSO
+
+## Model Building Logistic Regression (LASSO)
+### Creating the test and train samples
+```{r}
+test <- sample(nrow(ad_data2),0.3*nrow(ad_data2))
+data.train <- ad_data2[-test,]
+data.test <- ad_data2[test,] 
+
+
+x <- model.matrix(ad_detected~.,data=data.train)[,-1]
+y <- data.train$ad_detected
+x.test <- model.matrix(ad_detected~., data=data.test)[,-1]
+y.test <- data.test$ad_detected
+
+install.packages("glmnet")
+```
+
+
+
+###cross validation for lambda 
+```{r}
+library(glmnet)
+grid = 10^seq(10,-2,length=100)
+lasso.train <- glmnet(x,y,family="binomial", alpha=1, lambda=grid)
+dim(coef(lasso.train))
+
+```
+
+
+###determining minimum lambda value
+```{r}
+set.seed(123)
+cv.out = cv.glmnet(x,y,alpha=1,family="binomial")
+plot(cv.out)
+bestlam = cv.out$lambda.min
+#bestlam = cv.out$lambda.1se
+```
+
+###performing regularization to get coefficients
+```{r}
+out = glmnet(x,y,alpha=1,lambda=grid,family="binomial")
+lasso.coef = predict(lasso.train,type="coefficients",s=bestlam)[1:1556,]
+####THE 1556 represents the number of variables. 
+lasso.coef
+lasso.coef[lasso.coef!=0] ## This should give you our model itself. Which variables are relevant. The ones with 0 as coefficients will be removed
+length(lasso.coef[lasso.coef!=0])
+```
+
+
+###Remaining Variables? 57 -- down from 1556 
+
+## Data Analysis 
+### Training Accuracy
+```{r}
+train.lasso = predict(lasso.train, s=bestlam, newx=x, type="class")
+table(y, train.lasso) 
+```
+
+### Test Accuracy
+```{r}
+lasso.pred = predict(lasso.train, s=bestlam, newx=x.test, type="class")
+table(y.test,lasso.pred) 
+```
+
+
+
+
+
+
